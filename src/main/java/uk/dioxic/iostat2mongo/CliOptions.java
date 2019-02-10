@@ -14,12 +14,10 @@ import org.apache.commons.cli.*;
 import org.bson.Document;
 
 import java.io.IOException;
-import java.net.URISyntaxException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
 import java.util.List;
-import java.util.Objects;
 import java.util.stream.Collectors;
 
 public class CliOptions {
@@ -35,10 +33,11 @@ public class CliOptions {
     private String password;
     private String authenticationDatabase;
     private EventLoopGroup eventLoopGroup;
+    private List<String> filters;
 
     public CliOptions(String[] args) {
         Options options = new Options();
-        options.addOption("f", "path", true, "iostat path path");
+        options.addRequiredOption("f", "path", true, "iostat path path");
         options.addOption("h", "uri", true, "mongodb uri");
         options.addOption("b","batchSize", true, "mongodb bulkwrite batch size");
         options.addOption("t", "threads", true, "writer threads (defaults to CPU core count)");
@@ -49,6 +48,8 @@ public class CliOptions {
         options.addOption("p", "password", true, "mongodb password");
         options.addOption("a", "authenticationDatabase", true, "mongodb authentication database");
         options.addOption("s", "ssl", false, "enable SSL");
+        options.addOption("P", "poolSize", true, "connection pool size (default: 100)");
+        options.addOption("F", "filters", true, "comma-delimited list of metrics to include (default: all)");
 
         CommandLineParser parser = new DefaultParser();
 
@@ -57,7 +58,7 @@ public class CliOptions {
 
             MongoClientSettings.Builder mongoClientBuilder = MongoClientSettings.builder();
             mongoClientBuilder.applicationName("iostat loader");
-            //mongoClientBuilder.applyToConnectionPoolSettings(builder -> builder.maxSize(10));
+            mongoClientBuilder.applyToConnectionPoolSettings(builder -> builder.maxSize(Integer.parseInt(cli.getOptionValue('P', "100"))));
 
             username = cli.getOptionValue('u');
             password = cli.getOptionValue('p');
@@ -73,7 +74,7 @@ public class CliOptions {
             }
 
             if (cli.hasOption('s')) {
-                EventLoopGroup eventLoopGroup = new NioEventLoopGroup();
+                eventLoopGroup = new NioEventLoopGroup();
                 mongoClientBuilder
                         .streamFactoryFactory(NettyStreamFactoryFactory.builder()
                             .eventLoopGroup(eventLoopGroup).build());
@@ -84,7 +85,8 @@ public class CliOptions {
             database = client.getDatabase(cli.getOptionValue('d', "test"));
             collection = database.getCollection(cli.getOptionValue('c', "iostats"));
             batchSize = Integer.parseInt(cli.getOptionValue('b', "1000"));
-            threads = Integer.parseInt(cli.getOptionValue('t', Integer.toString(Runtime.getRuntime().availableProcessors())));
+            threads = Integer.parseInt(cli.getOptionValue('t', "1"));
+            filters = List.of(cli.getOptionValue('F', "").split("\\s*,\\s*"));
 
             if (cli.hasOption('x')) {
                 attributes = Document.parse(cli.getOptionValue('x'));
@@ -93,15 +95,10 @@ public class CliOptions {
             if (cli.hasOption('f')) {
                 path = Paths.get(cli.getOptionValue('f'));
             }
-            else {
-                path = Paths.get(Objects.requireNonNull(Thread.currentThread().getContextClassLoader().getResource("iostat.log")).toURI());
-            }
 
         } catch (ParseException e) {
             HelpFormatter help = new HelpFormatter();
             help.printHelp("iostat2mongo", options);
-        } catch (URISyntaxException e) {
-            e.printStackTrace();
         }
     }
 
@@ -125,6 +122,10 @@ public class CliOptions {
         return threads;
     }
 
+    public List<String> getFilters() {
+        return filters;
+    }
+
     public List<Path> getFiles() throws IOException {
         if (Files.isDirectory(path)) {
             return Files.walk(path)
@@ -142,6 +143,7 @@ public class CliOptions {
 
     public void cleanup() {
         if (eventLoopGroup != null) {
+            client.close();
             eventLoopGroup.shutdownGracefully();
         }
     }

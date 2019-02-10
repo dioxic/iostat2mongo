@@ -15,12 +15,12 @@ public class ExtendedCodecProvider implements CodecProvider {
      * A provider of Codecs for extended types.
      */
     public ExtendedCodecProvider(Codec... codecs) {
-        for (Codec codec : codecs) {
+        for (Codec<?> codec : codecs) {
             addCodec(codec);
         }
     }
 
-    public ExtendedCodecProvider() {};
+    public ExtendedCodecProvider() {}
 
     @Override
     @SuppressWarnings("unchecked")

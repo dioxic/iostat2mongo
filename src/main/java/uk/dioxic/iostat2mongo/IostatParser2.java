@@ -3,7 +3,6 @@ package uk.dioxic.iostat2mongo;
 import lombok.Builder;
 import lombok.Singular;
 import org.bson.Document;
-import reactor.core.publisher.Flux;
 
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -14,17 +13,12 @@ import java.util.Map;
 import static uk.dioxic.iostat2mongo.DateUtil.isDate;
 
 @Builder
-public class IostatParser {
+public class IostatParser2 {
     @Singular
     private List<String> filters = Collections.emptyList();
 
     @Singular
     private Map<String,Object> attributes = Collections.emptyMap();
-
-    public Flux<Document> parseFlux(Flux<String> s) {
-        s.blockLast();
-        return Flux.fromIterable(parse(s.collectList().block()));
-    }
 
     public List<Document> parse(List<String> s) {
         boolean cpu = false, device = false;
@@ -95,4 +89,5 @@ public class IostatParser {
                 ", additionalAttrs=" + attributes +
                 '}';
     }
+
 }

@@ -1,0 +1,35 @@
+Configuration:
+  status: warn
+  name: RuntimeLog4j2Config
+
+  Properties:
+    Property:
+      name: filename
+      value: iostat2mongo.log
+
+  Appenders:
+    Console:
+      name: STDOUT
+      PatternLayout:
+        Pattern: "%m%n"
+    File:
+      name: File
+      fileName: ${filename}
+      append: false
+      PatternLayout:
+        Pattern: "%d %p %c [%t] %m%n"
+
+  Loggers:
+    Root:
+      level: info
+      AppenderRef:
+        - ref: STDOUT
+          level: warn
+        - ref: File
+    Logger:
+      - name: uk.dioxic.iostat2mongo
+        additivity: true
+        level: info
+        AppenderRef:
+          - ref: STDOUT
+            level: info
