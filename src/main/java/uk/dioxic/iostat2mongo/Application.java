@@ -2,6 +2,7 @@ package uk.dioxic.iostat2mongo;
 
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.model.BulkWriteOptions;
+import com.mongodb.client.model.Indexes;
 import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -44,13 +45,7 @@ public class Application {
         Mono.from(cli.getCollection().drop()).block();
 
         // create index
-        Document index = new Document();
-        index.append("machine", 1);
-        index.append("type", 1);
-        index.append("metric", 1);
-        index.append("ts", 1);
-
-        Mono.from(cli.getCollection().createIndex(index)).block();
+        Mono.from(cli.getCollection().createIndex(Indexes.ascending("machine", "type", "metric", "ts"))).block();
 
         IostatParser parser = IostatParser.builder()
             .attributes(cli.getAttributes())
