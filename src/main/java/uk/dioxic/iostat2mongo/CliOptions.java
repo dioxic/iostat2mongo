@@ -87,14 +87,13 @@ public class CliOptions {
             batchSize = Integer.parseInt(cli.getOptionValue('b', "1000"));
             threads = Integer.parseInt(cli.getOptionValue('t', "1"));
             filters = List.of(cli.getOptionValue('F', "").split("\\s*,\\s*"));
+            attributes = cli.hasOption('x') ? Document.parse(cli.getOptionValue('x')) : new Document();
 
-            if (cli.hasOption('x')) {
+            if (cli.hasOption('x'))
                 attributes = Document.parse(cli.getOptionValue('x'));
-            }
 
-            if (cli.hasOption('f')) {
+            if (cli.hasOption('f'))
                 path = Paths.get(cli.getOptionValue('f'));
-            }
 
         } catch (ParseException e) {
             HelpFormatter help = new HelpFormatter();

@@ -2,20 +2,20 @@ package uk.dioxic.iostat2mongo;
 
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.model.BulkWriteOptions;
+import com.mongodb.client.model.InsertOneModel;
 import org.bson.Document;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Hooks;
 import reactor.core.publisher.Mono;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.stream.BaseStream;
+import java.util.stream.Stream;
 
 public class Application {
 
@@ -38,7 +38,7 @@ public class Application {
     }
 
     private void run() throws IOException {
-        Hooks.onOperatorDebug();
+//        Hooks.onOperatorDebug();
 
         // drop collection
         Mono.from(cli.getCollection().drop()).block();
@@ -68,33 +68,19 @@ public class Application {
 
         Runtime runtime = Runtime.getRuntime();
 
-        cli.getFiles().forEach(file -> fromPath(file)
-                .bufferUntil(DateUtil::isDate, true)
-//                .flatMap(lines ->  Flux.fromIterable(parser.parse(lines)))
-                .log()
-                .flatMap(lines -> Flux.fromIterable(parser.parse(lines)))
-                .log()
+        cli.getFiles().forEach(file -> parser.generatorParse(file)
+                .doOnSubscribe(sub -> logger.info("Starting processing"))
+                .doOnComplete(() -> logger.info("Processing complete"))
+//                .bufferUntil(DateUtil::isDate, true)
+//                .flatMap(parser::parseFlux)
+//                .flatMap(lines -> Flux.fromIterable(parser.parse(lines)))
+                .flatMap(IostatParser.State::toDocumentList)
                 .filter(doc -> doc.get("value", Double.class) > 0)
-                .map(bucketer::bucket)
-//                .doOnNext(System.out::println)
-//                .map(InsertOneModel::new)
+//                .map(bucketer::bucket)
+                .map(InsertOneModel::new)
                 .buffer(cli.getBatchSize())
-                .delayElements(Duration.ofMillis(500))
-//                .log()
-//                .parallel(cli.getThreads())
-//                .runOn(Schedulers.parallel())
-//                .doOnNext(DocumentUtil::print)
-//                .map(cli.getCollection()::insertOne)
-                //.doOnNext(b -> System.out.println("executing bulk write op"))
                 .flatMap(models -> cli.getCollection().bulkWrite(models, options))
-                .log()
                 .doOnError(System.err::println)
-//                .blockLast());
-//                .sequential()
-                //.map(BulkWriteResult::getModifiedCount)
-                //.log()
-                //.doOnNext(System.out::println)
-//                .map(success -> (success.toString().isEmpty()) ? ZERO : ONE)
                 .reduce(new Result(), Result::sum)
                 .flatMapMany(result -> Flux.just(
                         result + " from " + file.getFileName(),
@@ -106,9 +92,21 @@ public class Application {
 
     public static Flux<String> fromPath(Path file) {
         logger.info("Reading file {}", file.getFileName());
+
         return Flux.using(() -> Files.lines(file),
                 Flux::fromStream,
                 BaseStream::close
+        );
+    }
+
+    public static Flux<Document> sinkPath(Path file) throws IOException {
+
+        Stream<String> lines = Files.lines(file);
+
+        return Flux.generate(
+                (sink) -> {
+                    sink.next(new Document());
+                }
         );
     }
 
