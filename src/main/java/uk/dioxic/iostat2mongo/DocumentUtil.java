@@ -20,8 +20,8 @@ public class DocumentUtil {
             .build();
     private static final DocumentCodec documentCodec = new DocumentCodec(DEFAULT_REGISTRY);
 
-    public static void print(Document doc) {
-        System.out.println(doc.toJson(jws, documentCodec));
+    public static String toJson(Document doc) {
+        return doc.toJson(jws, documentCodec);
     }
 
     public static DocumentCodec getDocumentCodec() {
