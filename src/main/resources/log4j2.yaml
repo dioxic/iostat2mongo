@@ -24,7 +24,7 @@ Configuration:
       level: info
       AppenderRef:
         - ref: STDOUT
-          level: warn
+          level: info
         - ref: File
     Logger:
       - name: uk.dioxic.iostat2mongo

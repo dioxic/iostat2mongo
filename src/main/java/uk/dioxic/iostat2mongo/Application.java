@@ -3,11 +3,10 @@ package uk.dioxic.iostat2mongo;
 import com.mongodb.bulk.BulkWriteResult;
 import com.mongodb.client.model.BulkWriteOptions;
 import com.mongodb.client.model.InsertOneModel;
+import lombok.extern.slf4j.Slf4j;
 import org.bson.Document;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
+import reactor.core.scheduler.Schedulers;
 
 import java.io.IOException;
 import java.nio.file.Files;
@@ -15,12 +14,11 @@ import java.nio.file.Path;
 import java.time.temporal.ChronoUnit;
 import java.util.List;
 import java.util.stream.BaseStream;
-import java.util.stream.Stream;
 
+@Slf4j
 public class Application {
 
     private static CliOptions cli;
-    private static Logger logger = LoggerFactory.getLogger(Application.class);
 
     public static void main(String[] args) {
         try {
@@ -30,9 +28,9 @@ public class Application {
         } catch (Throwable e) {
             e.printStackTrace();
         } finally {
-            logger.info("cleaning up resources");
+            log.info("cleaning up resources");
             cli.cleanup();
-            logger.info("exiting");
+            log.info("exiting");
         }
 
     }
@@ -41,16 +39,10 @@ public class Application {
 //        Hooks.onOperatorDebug();
 
         // drop collection
-        Mono.from(cli.getCollection().drop()).block();
+//        Mono.from(cli.getCollection().drop()).block();
 
         // create index
-        Document index = new Document();
-        index.append("machine", 1);
-        index.append("type", 1);
-        index.append("metric", 1);
-        index.append("ts", 1);
-
-        Mono.from(cli.getCollection().createIndex(index)).block();
+//        Mono.from(cli.getCollection().createIndex(Indexes.ascending("machine", "type", "metric", "ts"))).block();
 
         IostatParser parser = IostatParser.builder()
             .attributes(cli.getAttributes())
@@ -62,6 +54,8 @@ public class Application {
                 .resolution(ChronoUnit.SECONDS)
                 .dimensionFields(List.of("machine","type","metric","device"))
                 .factField("value")
+                .includeValues(false)
+                .includeAvg(true)
                 .build();
 
         BulkWriteOptions options = new BulkWriteOptions().ordered(false);
@@ -69,44 +63,43 @@ public class Application {
         Runtime runtime = Runtime.getRuntime();
 
         cli.getFiles().forEach(file -> parser.generatorParse(file)
-                .doOnSubscribe(sub -> logger.info("Starting processing"))
-                .doOnComplete(() -> logger.info("Processing complete"))
-//                .bufferUntil(DateUtil::isDate, true)
-//                .flatMap(parser::parseFlux)
-//                .flatMap(lines -> Flux.fromIterable(parser.parse(lines)))
-                .flatMap(IostatParser.State::toDocumentList)
-                .filter(doc -> doc.get("value", Double.class) > 0)
-//                .map(bucketer::bucket)
+                .doOnSubscribe(sub -> log.info("Starting processing"))
+                .doOnComplete(() -> log.info("Processing complete"))
+                .windowUntil(state -> bucketer.splitOn(state.ts), true)
+                //.parallel()
+                .publishOn(Schedulers.elastic())
+                .flatMap(window -> window.flatMap(IostatParser.State::toDocumentList)
+                        .groupBy(bucketer::dimensionKey)
+                        .flatMap(g -> g.reduce(new Document(), bucketer::combine))
+                )
+                .doOnNext(doc -> doc.remove(bucketer.getSumField()))
+//                .log()
+//                .doOnNext(doc -> logger.info(DocumentUtil.toJson(doc)))
+//                .doOnNext(cli::log)
                 .map(InsertOneModel::new)
                 .buffer(cli.getBatchSize())
+//                .parallel()
+//                .runOn(Schedulers.parallel())
+//                .doOnNext(e -> logger.info("writing batch"))
                 .flatMap(models -> cli.getCollection().bulkWrite(models, options))
+                .doOnNext(result -> log.info(result.toString()))
                 .doOnError(System.err::println)
+//                .sequential()
                 .reduce(new Result(), Result::sum)
                 .flatMapMany(result -> Flux.just(
                         result + " from " + file.getFileName(),
                         String.format("Memory in use while reading: %dMB\n", (runtime.totalMemory() - runtime.freeMemory()) / (1024 * 1024))
                 ))
-                .doOnNext(logger::info)
+                .doOnNext(log::info)
                 .blockLast());
     }
 
     public static Flux<String> fromPath(Path file) {
-        logger.info("Reading file {}", file.getFileName());
+        log.info("Reading file {}", file.getFileName());
 
         return Flux.using(() -> Files.lines(file),
                 Flux::fromStream,
                 BaseStream::close
-        );
-    }
-
-    public static Flux<Document> sinkPath(Path file) throws IOException {
-
-        Stream<String> lines = Files.lines(file);
-
-        return Flux.generate(
-                (sink) -> {
-                    sink.next(new Document());
-                }
         );
     }
 

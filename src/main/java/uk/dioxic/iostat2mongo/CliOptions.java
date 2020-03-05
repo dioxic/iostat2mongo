@@ -3,23 +3,25 @@ package uk.dioxic.iostat2mongo;
 import com.mongodb.ConnectionString;
 import com.mongodb.MongoClientSettings;
 import com.mongodb.MongoCredential;
-import com.mongodb.connection.netty.NettyStreamFactoryFactory;
 import com.mongodb.reactivestreams.client.MongoClient;
 import com.mongodb.reactivestreams.client.MongoClients;
 import com.mongodb.reactivestreams.client.MongoCollection;
 import com.mongodb.reactivestreams.client.MongoDatabase;
-import io.netty.channel.EventLoopGroup;
-import io.netty.channel.nio.NioEventLoopGroup;
+import lombok.Getter;
 import org.apache.commons.cli.*;
 import org.bson.Document;
+import reactor.core.Exceptions;
 
+import java.io.BufferedWriter;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardOpenOption;
 import java.util.List;
 import java.util.stream.Collectors;
 
+@Getter
 public class CliOptions {
 
     private MongoClient client;
@@ -28,12 +30,14 @@ public class CliOptions {
     private int batchSize;
     private int threads;
     private Path path;
+    private Path logFile;
     private Document attributes;
     private String username;
     private String password;
     private String authenticationDatabase;
-    private EventLoopGroup eventLoopGroup;
     private List<String> filters;
+
+    private BufferedWriter bw;
 
     public CliOptions(String[] args) {
         Options options = new Options();
@@ -50,6 +54,7 @@ public class CliOptions {
         options.addOption("s", "ssl", false, "enable SSL");
         options.addOption("P", "poolSize", true, "connection pool size (default: 100)");
         options.addOption("F", "filters", true, "comma-delimited list of metrics to include (default: all)");
+        options.addOption("l","log", true, "log file path");
 
         CommandLineParser parser = new DefaultParser();
 
@@ -59,6 +64,7 @@ public class CliOptions {
             MongoClientSettings.Builder mongoClientBuilder = MongoClientSettings.builder();
             mongoClientBuilder.applicationName("iostat loader");
             mongoClientBuilder.applyToConnectionPoolSettings(builder -> builder.maxSize(Integer.parseInt(cli.getOptionValue('P', "100"))));
+//            mongoClientBuilder.applyToSocketSettings(soc -> soc.readTimeout());
 
             username = cli.getOptionValue('u');
             password = cli.getOptionValue('p');
@@ -71,13 +77,6 @@ public class CliOptions {
 
             if (cli.hasOption('h')) {
                 mongoClientBuilder.applyConnectionString(new ConnectionString(cli.getOptionValue('h')));
-            }
-
-            if (cli.hasOption('s')) {
-                eventLoopGroup = new NioEventLoopGroup();
-                mongoClientBuilder
-                        .streamFactoryFactory(NettyStreamFactoryFactory.builder()
-                            .eventLoopGroup(eventLoopGroup).build());
             }
 
             client = MongoClients.create(mongoClientBuilder.build());
@@ -95,34 +94,13 @@ public class CliOptions {
             if (cli.hasOption('f'))
                 path = Paths.get(cli.getOptionValue('f'));
 
+            if (cli.hasOption('l'))
+                logFile = Paths.get(cli.getOptionValue('l'));
+
         } catch (ParseException e) {
             HelpFormatter help = new HelpFormatter();
             help.printHelp("iostat2mongo", options);
         }
-    }
-
-    public MongoClient getClient() {
-        return client;
-    }
-
-    public MongoCollection<Document> getCollection() {
-        return collection;
-    }
-
-    public MongoDatabase getDatabase() {
-        return database;
-    }
-
-    public int getBatchSize() {
-        return batchSize;
-    }
-
-    public int getThreads() {
-        return threads;
-    }
-
-    public List<String> getFilters() {
-        return filters;
     }
 
     public List<Path> getFiles() throws IOException {
@@ -136,14 +114,44 @@ public class CliOptions {
         }
     }
 
-    public Document getAttributes() {
-        return attributes;
+    public void log(Document doc) {
+        if (logFile != null)
+            try {
+                if (bw == null) {
+                    bw = Files.newBufferedWriter(logFile, StandardOpenOption.CREATE, StandardOpenOption.TRUNCATE_EXISTING);
+                }
+                bw.write(DocumentUtil.toJson(doc) + "\n");
+            }
+            catch (IOException e){
+                throw Exceptions.propagate(e);
+            }
     }
 
     public void cleanup() {
-        if (eventLoopGroup != null) {
-            client.close();
-            eventLoopGroup.shutdownGracefully();
+        client.close();
+        if (bw != null) {
+            try {
+                bw.close();
+            } catch (IOException e) {
+                throw Exceptions.propagate(e);
+            }
         }
+    }
+
+    @Override
+    public String toString() {
+        return "CliOptions{" +
+                "collection=" + collection.getNamespace() +
+                ", database=" + database.getName() +
+                ", batchSize=" + batchSize +
+                ", threads=" + threads +
+                ", path=" + path +
+                ", logFile=" + logFile +
+                ", attributes=" + attributes +
+                ", username='" + username + '\'' +
+                ", password='" + password + '\'' +
+                ", authenticationDatabase='" + authenticationDatabase + '\'' +
+                ", filters=" + filters +
+                '}';
     }
 }
